@@ -1,4 +1,4 @@
-% @Individual/Individual.m
+% 文件: @Individual/Individual.m
 
 classdef Individual < handle
     % Individual 类：表示协同进化算法中的一个解（特征子集）。
@@ -29,7 +29,38 @@ classdef Individual < handle
     end
     
     methods
-        function obj = evaluate(obj, X, Y, fitness_functions, params) % <--- 修改: 新增 params 输入
+        % ***************************************************************
+        % *** 构造函数 (Constructor) - 必须放在 methods 块的第一个函数 ***
+        % ***************************************************************
+        function obj = Individual(features_subset_input, task_id_input)
+            % Individual 构造函数
+            
+            if nargin > 0
+                obj.FeaturesSubset = features_subset_input;
+                obj.FeatureCount = sum(features_subset_input);
+                obj.TaskID = task_id_input;
+                
+                % 初始化评估结果和适应度
+                obj.Accuracy = 0.0;
+                obj.Fitness = -inf; 
+                obj.DuoObjective = [0.0, 0.0]; % 初始双目标为 [0, 0]
+                
+                % 初始化 CSO/PSO 属性
+                D_total = length(features_subset_input);
+                % Position: 初始化为随机数或基于 FeaturesSubset 的映射 (如 0.5 附近)
+                obj.Position = rand(1, D_total); 
+                obj.Velocity = zeros(1, D_total); 
+
+                % 初始化多目标排序属性
+                obj.DominatingCount = 0;
+                obj.DominatedSet = [];
+                obj.ParetoFrontRank = 0;
+                obj.CrowdingDistance = 0.0;
+            end
+        end
+        % ***************************************************************
+        
+        function obj = evaluate(obj, X, Y, fitness_functions, params) 
             % EVALUATE 评估个体的分类精度和计算适应度。
             
             % 1. 获取子集的准确率 Acc(S)
@@ -67,10 +98,36 @@ classdef Individual < handle
                 otherwise
                     error('Individual:InvalidTaskID', '个体任务 ID 必须是 1, 2, 或 3。');
             end
-        end        function new_individual = clone(obj)
-            % CLONE 创建当前个体的一个深拷贝。
-            new_individual = copy(obj);
         end
+        
+        % ***************************************************************
+        % *** CLONE 方法：使用手动赋值 (方案二) 实现深拷贝 ***
+        % ***************************************************************
+        function new_individual = clone(obj)
+            % CLONE 创建当前个体的一个深拷贝。
+            
+            % 1. 创建一个新的 Individual 对象 (使用空构造函数)
+            new_individual = Individual(); 
+            
+            % 2. 遍历并复制所有属性的值 (实现深拷贝)
+            % 这种方法适用于当前 Individual 只有基本数值和逻辑数组属性的情况。
+            mc = metaclass(obj);
+            propertyList = mc.PropertyList;
+            
+            for i = 1:length(propertyList)
+                propName = propertyList(i).Name;
+                % 仅复制非依赖、非常量属性
+                if ~propertyList(i).Dependent && ~propertyList(i).Constant
+                    try
+                        % 复制属性值
+                        new_individual.(propName) = obj.(propName);
+                    catch
+                        % 忽略无法复制的属性（例如 private 或只读）
+                    end
+                end
+            end
+        end
+        % ***************************************************************
         
     end % methods
 end % classdef

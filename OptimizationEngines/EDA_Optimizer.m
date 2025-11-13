@@ -91,7 +91,7 @@ function [NewPopulation, EliteIndividual] = EDA_Optimizer(Population, KnowledgeB
         
         % 评估：调用 Individual 类中的 evaluate 方法
         % 需要传入 X, Y 和适应度函数
-        new_individual = new_individual.evaluate(X, Y, fitness_funcs); 
+        new_individual = new_individual.evaluate(X, Y, fitness_funcs, params); 
         
         NewSamples(i) = new_individual;
     end

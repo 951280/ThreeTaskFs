@@ -21,10 +21,13 @@ function [Population, ParetoFront] = CSO_Optimizer(Population, KnowledgeBase, X,
     % --- 配置参数 ---
     P_TRANS = params.Knowledge.T_Transfer; % 知识迁移概率 (或周期性判断)
     R_V = 0.5; % 额外速度校正的随机因子 (对应公式 (4) 中的 r4)
-
+    
     % --- 1. 双目标评估和解码 (P -> S) ---
     ObjectiveMatrix = zeros(PopSize, 2); % 目标矩阵: [Acc, Compression]
     
+    % 从 params 中获取 Task 1 所需的 alpha 参数
+    alpha = params.Fitness.Alpha; % <--- 新增: 获取 alpha
+
     for i = 1:PopSize
         % 解码：将实数位置 P 映射到二元子集 S (使用 Sigmoid 或简单二值化)
         % 简化的二值化 (阈值 0.5)
@@ -35,12 +38,18 @@ function [Population, ParetoFront] = CSO_Optimizer(Population, KnowledgeBase, X,
         Acc = evaluateSubset(X, Y, S_mask);
         Compression = 1 - (sum(S_mask) / D_total);
 
-        % 更新个体属性
+        % 更新个体属性 (核心属性)
         Population(i).FeaturesSubset = S_mask;
         Population(i).Accuracy = Acc;
         Population(i).FeatureCount = sum(S_mask);
         Population(i).DuoObjective = [Acc, Compression];
         ObjectiveMatrix(i, :) = [Acc, Compression];
+        
+        % ***************************************************************
+        % 计算适应度 (Task 1: f1 适应度)
+        % f1 适应度函数的签名是 f1(Acc, S_count, N_total, alpha)
+        Population(i).Fitness = fitness_funcs.f1(Population(i).Accuracy, Population(i).FeatureCount, D_total, alpha); % <--- 修正: 传入 alpha
+        % ***************************************************************
     end
     
     % --- 2. 非支配排序和拥挤距离计算 ---

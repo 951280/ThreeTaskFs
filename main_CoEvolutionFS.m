@@ -10,14 +10,37 @@ function main_CoEvolutionFS()
         run('config_parameters.m');
     end
     
-    % 1.2 加载数据集
-    % ***************************************************************
-    % ***请在此处修改为本地 SECOM 文件的绝对路径 ***
-    DATA_PATH = 'D:\code\ThreeTaskFs\data\secom\secom.data'; 
-    LABELS_PATH = 'D:\code\ThreeTaskFs\data\secom\secom_labels.data';
-    % ***************************************************************
+    % --- 数据集切换配置 (只需修改这一个标志) ---
+    DATASET_TO_RUN = 'SPECTF'; % 可选值: 'SECOM' 或 'SPECTF'
     
-    [X, Y, ~] = data_loader(DATA_PATH, LABELS_PATH);
+    if strcmp(DATASET_TO_RUN, 'SECOM')
+        % --- SECOM 配置 (原始大样本) ---
+        disp('  > 正在加载 SECOM 数据集 (N=1567, D=590)...');
+        % ***************************************************************
+        % *** SECOM 文件路径 ***
+        DATA_PATH   = 'D:\code\ThreeTaskFs\data\secom\secom.data'; 
+        LABELS_PATH = 'D:\code\ThreeTaskFs\data\secom\secom_labels.data';
+        % ***************************************************************
+        
+        % 注意: data_loader 在 SECOM 模式下需要两个路径
+        [X, Y, ~] = data_loader(DATA_PATH, LABELS_PATH, DATASET_TO_RUN);
+        
+    elseif strcmp(DATASET_TO_RUN, 'SPECTF')
+        % --- SPECTF 配置 (小样本调试) ---
+        disp('  > 正在加载 SPECTF Heart 数据集 (N=267, D=22)...');
+        % ***************************************************************
+        % *** SPECTF 文件路径 ***
+        TRAIN_PATH = 'D:\code\ThreeTaskFs\data\spect+heart\SPECT.train';  
+        TEST_PATH  = 'D:\code\ThreeTaskFs\data\spect+heart\SPECT.test';   
+        % ***************************************************************
+        
+        % 注意: data_loader 在 SPECTF 模式下需要两个路径 (训练集和测试集)
+        [X, Y, ~] = data_loader(TRAIN_PATH, TEST_PATH, DATASET_TO_RUN);
+    
+    else
+        error('main_CoEvolutionFS:InvalidDataset', '请设置 DATASET_TO_RUN 为有效的配置名称。');
+    end
+    
     D_total = size(X, 2);
     
     % 1.3 初始化函数句柄 (用于评估)
@@ -98,7 +121,11 @@ function main_CoEvolutionFS()
         
         % a. 知识域刷新 (每 K 代)
         if mod(Gen, K_Refresh) == 0
-            KB = refreshDomain(KB, Elite2, Elite3);
+             % *** 新增: 计算新的知识域 F1_Domain (Elite2.S 并 Elite3.S) ***
+            F1_Domain_Mask = Elite2.FeaturesSubset | Elite3.FeaturesSubset;
+            F1_Domain_Indices = find(F1_Domain_Mask);
+             % ***************************************************************
+            KB = KB.refreshDomain(F1_Domain_Indices);
         end
 
         % b. 知识迁移策略 (每 T 代)
