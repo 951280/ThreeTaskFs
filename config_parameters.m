@@ -6,6 +6,16 @@
 params.AlgorithmName = 'MultiTaskCoEvolutionaryFS';
 params.MATLABVersion = version;
 
+%% 0. 调试/子集抽样参数 (Phase 1 之前)
+% 区域：调试/抽样
+% 参数名称：Debug_Subset_Ratio
+% 含义：调试运行时抽取的数据集比例 (0-1)。 1 表示全部数据。
+% 算法的应用：main_CoEvolutionFS.m
+
+params.Debug.Enable = true;          % 是否启用调试子集抽取 (true/false)。调试时设为 true。
+params.Debug.Subset_Ratio = 0.2;     % 抽取的数据集比例 (0-1)。 0.2 表示 20% 数据进行调试。
+
+
 %% 1. 种群和迭代参数 (Phase 4, 5)
 params.PopSize = 50;            % 种群大小 (所有任务统一)
 params.MaxGenerations = 200;    % 最大进化代数

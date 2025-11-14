@@ -41,6 +41,43 @@ function main_CoEvolutionFS()
         error('main_CoEvolutionFS:InvalidDataset', '请设置 DATASET_TO_RUN 为有效的配置名称。');
     end
     
+    
+    % ====================================================================
+    % 1.2.1. 【新增调试模块】抽取小规模子集 (加速调试)
+    % ====================================================================
+    % 确保 params.Debug.Enable 在 config_parameters.m 中被定义
+    if isfield(params, 'Debug') && params.Debug.Enable
+        subset_ratio = params.Debug.Subset_Ratio;
+        
+        disp('------------------------------------------------');
+        fprintf('  DEBUG MODE: 已启用子集抽样 (Ratio: %.2f)\n', subset_ratio);
+        
+        try
+            % 使用分层抽样 (Stratified Sampling)
+            cv = cvpartition(Y, 'Holdout', 1 - subset_ratio); 
+        catch ME
+            % 回退到非分层抽样
+            warning('Main:CVPartitionFailed', ...
+                '无法进行分层抽样: %s。尝试非分层抽样。', ME.message);
+            N = size(X, 1);
+            cv = cvpartition(N, 'Holdout', 1 - subset_ratio); 
+        end
+        
+        % 获取抽样后的索引
+        subset_indices = training(cv); 
+        
+        % 更新数据为子集
+        X = X(subset_indices, :);
+        Y = Y(subset_indices, :);
+        
+        % 显示更新后的维度
+        N_subset = size(X, 1);
+        D_total_after_subset = size(X, 2);
+        fprintf('  数据维度已更新: 样本数 N=%d, 特征数 D=%d\n', N_subset, D_total_after_subset);
+        disp('------------------------------------------------');
+    end
+    % ====================================================================
+    
     D_total = size(X, 2);
     
     % 1.3 初始化函数句柄 (用于评估)
@@ -66,9 +103,9 @@ function main_CoEvolutionFS()
     Population2 = Pop2_init;
     Population3 = Pop3_init;
     
-    % 1.6 初始化知识库 (KB) - 使用交集 F2 ∩ F3
+    % 1.6 初始化知识库 (KB) - 使用并集 F2 U F3 (符合高维特征集初始探索的策略)
     % F2_domain 和 F3_domain 已经是特征索引向量
-    Initial_Domain_Indices = intersect(F2_domain, F3_domain);
+    Initial_Domain_Indices = union(F2_domain, F3_domain); % <--- 初始化改为并集
     KB = KnowledgeBase(D_total, Initial_Domain_Indices, params.Knowledge.IM_SV_InitValue);
     
     % 1.7 初始评估 (Pop2 和 Pop3 的 Position/Velocity 不用于第一次评估)
@@ -121,18 +158,24 @@ function main_CoEvolutionFS()
         
         % a. 知识域刷新 (每 K 代)
         if mod(Gen, K_Refresh) == 0
-             % *** 新增: 计算新的知识域 F1_Domain (Elite2.S 并 Elite3.S) ***
-            F1_Domain_Mask = Elite2.FeaturesSubset | Elite3.FeaturesSubset;
+            % 计算新的知识域 F1_Domain (只保留 Elite2.S 和 Elite3.S 的交集)
+            % 目的: 强制知识域收缩，聚焦于被两个任务共同认可的特征子空间 (高维数据优化)
+            F1_Domain_Mask = Elite2.FeaturesSubset & Elite3.FeaturesSubset; % <--- 刷新改为交集
             F1_Domain_Indices = find(F1_Domain_Mask);
-             % ***************************************************************
-            KB = KB.refreshDomain(F1_Domain_Indices);
+            
+            % 检查交集是否为空，如果为空则避免域清空导致崩溃
+            if isempty(F1_Domain_Indices)
+                 warning('Main:EmptyIntersectionRefresh', 'IM/SV 知识域交集为空，跳过本次刷新。');
+            else
+                KB = KB.refreshDomain(F1_Domain_Indices);
+            end
         end
 
         % b. 知识迁移策略 (每 T 代)
         if mod(Gen, T_Transfer) == 0 
             
             % b.1 辅助任务 -> 主任务迁移 (IM/SV 引导 CSO)
-            % P_KB 在 CSO_Optimizer 内部被 GenerateKnowledgeVector 获取，此处仅为调度点
+            % P_KB 在 CSO_Optimizer 内部被 GenerateKnowledgeVector 获取/隐式调用
             % transferAuxToMain(KB, Population1, params); % 此函数仅生成 P_KB，CSO_Optimizer 已直接调用
 
             % b.2 主任务 -> 辅助任务迁移 (F1 指导 EDA)
@@ -150,7 +193,7 @@ function main_CoEvolutionFS()
 
         
         % ******************************************************************
-        % *** 实验数据记录和实时打印 (新增) ***
+        % *** 实验数据记录和实时打印 ***
         % ******************************************************************
         History.Gen = Gen;
         History.Acc_Elite2 = Elite2.Accuracy;
@@ -180,17 +223,18 @@ function main_CoEvolutionFS()
     
     disp('--- 算法执行完毕。---');
     
-    % *** 最终输出和保存 (修改) ***
-    % 确保在主程序结束后保存所有实验数据
+    % *** 最终输出和保存 ***
     Output_Final_Results(ParetoFront, Experiment_History); 
 
 end
 
-% --- 辅助输出函数 (修改为保存数据) ---
+% --- 辅助输出函数 ---
 function Output_Final_Results(ParetoFront, Experiment_History)
     
     % 1. 打印最终帕累托前沿 F1 的信息
     NumSolutions = length(ParetoFront);
+    disp(' ');
+    disp('--- 最终结果汇总 ---');
     disp(['最终帕累托前沿 F1 包含 ', num2str(NumSolutions), ' 个非支配解。']);
     
     % 2. 提取 F1 解集数据
@@ -209,6 +253,5 @@ function Output_Final_Results(ParetoFront, Experiment_History)
     save(FileName, 'Final_Pareto_Solutions', 'Experiment_History', 'ParetoFront');
     
     disp(['所有实验结果已保存到文件: ', FileName]);
-    
-    % ... (此处可以添加代码，用于绘制 Acc-Count 曲线等)
+    disp(' ');
 end
