@@ -17,13 +17,13 @@ params.Debug.Subset_Ratio = 0.2;     % 抽取的数据集比例 (0-1)。 0.2 表
 
 
 %% 1. 种群和迭代参数 (Phase 4, 5)
-params.PopSize = 50;            % 种群大小 (所有任务统一)
+params.PopSize = 25;            % 种群大小 (所有任务统一)
 params.MaxGenerations = 200;    % 最大进化代数
 params.StopPatience = 20;       % 连续多代适应度未提升的停止代数 (Stopping Condition)
 
 %% 2. 分类器和评估参数 (Phase 1, 4)
 % 在 evaluateSubset.m 中使用
-params.Evaluation.KFold = 5;            % K-折交叉验证的 K
+params.Evaluation.KFold = 1;            % K-折交叉验证的 K
 params.Evaluation.KNN_K = 5;            % K-近邻分类器的 K 值
 
 %% 3. 适应度函数参数 (Phase 2, 5)

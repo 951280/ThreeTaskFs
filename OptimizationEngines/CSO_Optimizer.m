@@ -33,6 +33,13 @@ function [Population, ParetoFront] = CSO_Optimizer(Population, KnowledgeBase, X,
         % 简化的二值化 (阈值 0.5)
         P = Population(i).Position;
         S_mask = P > 0.5; 
+
+        % 【新增修正】确保特征子集不为空 (防止 evaluateSubset 警告/CSO搜索崩溃)
+        if sum(S_mask) == 0
+             % 如果为空，强制选中 P 值最高的特征 (至少保证 1 个特征)
+             [~, best_idx] = max(P);
+             S_mask(best_idx) = true;
+         end 
         
         % 计算两个目标值
         Acc = evaluateSubset(X, Y, S_mask);
