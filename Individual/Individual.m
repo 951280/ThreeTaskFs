@@ -69,7 +69,7 @@ classdef Individual < handle
                 obj.Accuracy = 0.0;
                 obj.FeatureCount = 0;
             else
-                obj.Accuracy = evaluateSubset(X, Y, obj.FeaturesSubset);
+                obj.Accuracy = evaluateSubset(X, Y, obj.FeaturesSubset, params);
                 obj.FeatureCount = sum(obj.FeaturesSubset);
             end
 

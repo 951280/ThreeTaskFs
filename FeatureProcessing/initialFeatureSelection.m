@@ -40,7 +40,7 @@ function [initial_population, K1, initial_domain] = initialFeatureSelection(X, Y
         subset_mask(Indices_Sorted(1:k)) = true;
         
         % 评估当前 Top K 特征的精度
-        accuracies(i) = f_eval(X, Y, subset_mask);
+        accuracies(i) = f_eval(X, Y, subset_mask, params);
     end
     
     % 1.3 寻找膝点 (最大垂直距离法)

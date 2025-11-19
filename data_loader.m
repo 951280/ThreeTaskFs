@@ -100,13 +100,29 @@ switch upper(dataset_name)
     otherwise
         error('data_loader:InvalidDataset', '不支持的数据集名称: %s', dataset_name);
 end
+% ====================================================================
+% 2.5移除常数/零方差特征 (兼容 Naive Bayes 和其他敏感模型)
+% ====================================================================
+if ~isempty(X)
+    % 计算每个特征的方差
+    feature_variances = var(X, 0, 1); % 0 for sample variance, 1 for dimension
+    % 找到方差不为零的特征索引
+    non_constant_features = feature_variances > 1e-6; % 使用一个小的容差
+    
+    D_before = size(X, 2);
+    X = X(:, non_constant_features);
+    D_after = size(X, 2);
+    
+    if D_before > D_after
+        fprintf('  > 已移除 %d 个常数或零方差特征。\n', D_before - D_after);
+    end
+end
 
-
-% --- 2. 最终输出和检查 ---
+% --- 2.6 最终输出和检查 ---
 
 D_total = size(X, 2);
 
-% 5. 创建特征名称 (适用于任何数据集)
+%3 创建特征名称 (适用于任何数据集)
 FeatureNames = cell(1, D_total);
 for i = 1:D_total
     FeatureNames{i} = ['Feature_', num2str(i)];
