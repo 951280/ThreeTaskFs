@@ -33,7 +33,7 @@ params.Evaluation.KNN_K = 5;            % K-近邻分类器的 K 值
 % --- Task 1 (主任务: 平衡) f1 ---
 % f1(S) = alpha * Acc(S) + (1 - alpha) * (1 - |S|/N)
 % alpha 用于平衡 Accuracy 和 Feature Compression Ratio。
-params.Fitness.Alpha = 0.5;             % 平衡因子：[0, 1]。0.5 表示平均权重。
+params.Fitness.Alpha = 0.7;             % 平衡因子：[0, 1]。0.5 表示平均权重。
 
 % --- Task 2 (辅助任务 1: 精度优化器) f2 ---
 % f2(S) = Acc - lambda * (|S|/N)
@@ -45,18 +45,16 @@ params.Fitness.Lambda_Range = [0.05, 0.2]; % 论文建议范围备忘
 % f3(S) = (1 - |S|/N), if Acc(S) >= theta_acc
 % f3(S) = Acc(S) * (1 - |S|/N), otherwise
 % theta_acc 是最低可接受精度阈值。
-params.Fitness.ThetaAcc = 0.8;          % 最低可接受精度阈值。论文建议 0.8。
+params.Fitness.ThetaAcc = 0.87;          % 最低可接受精度阈值
 
 %% 4. 知识共享与迁移参数 (Phase 3, 4)
 
 % --- 知识共享/刷新 ---
-params.Knowledge.K_Refresh = 10;        % IM/SV 域刷新的周期 K (每 K 代刷新一次域)
-%params.Knowledge.K_Refresh = 50;        % 测试
+params.Knowledge.K_Refresh = 20;        % IM/SV 域刷新的周期 K (每 K 代刷新一次域)
 params.Knowledge.IM_SV_InitValue = 0.01; % IM 和 SV 的初始值/小常数
 
 % --- 知识迁移 ---
-params.Knowledge.T_Transfer = 10;       % 知识迁移的初始周期 T (每 T 代迁移一次)
-%params.Knowledge.T_Transfer = 50;       % 测试
+params.Knowledge.T_Transfer = 20;       % 知识迁移的初始周期 T (每 T 代迁移一次)
 params.Knowledge.T_DynamicRatio = 0.9;  % 迁移周期动态缩小的比例 (如 T = T * 0.9)
 params.Knowledge.GenRatioForEarlyTransfer = 0.3; % 早期迁移阶段的代数比例 (如 Gen < 0.3*MaxGen 迁移少)
 

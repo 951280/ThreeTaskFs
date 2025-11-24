@@ -60,42 +60,57 @@ switch upper(dataset_name)
             error('data_loader:SampleMismatch', '特征矩阵 (%d) 和标签向量 (%d) 的样本数量不匹配。', size(X, 1), length(Y));
         end
 
-        
-    case 'SPECTF'
-        % --- SPECTF 加载逻辑 (小样本，低维，训练/测试集分离，标签是 0/1) ---
-        train_file_path = path1;
-        test_file_path = path2;
-        
-        % 2.1. 加载训练集和测试集数据 (假设分隔符是逗号或空格)
-        
-        % 辅助加载函数，用于尝试不同的分隔符
-        load_func = @(file_path) dlmread(file_path, ',');
-        try Train_Data = load_func(train_file_path);
-        catch, load_func = @(file_path) dlmread(file_path, ' '); Train_Data = load_func(train_file_path); end
-        
-        try Test_Data = load_func(test_file_path);
-        catch, Test_Data = load_func(test_file_path); end
-        
-        disp(['  > 成功加载 SPECTF 训练集：', train_file_path]);
-        disp(['  > 成功加载 SPECTF 测试集：', test_file_path]);
-        
-        % 2.2. 合并数据
-        Combined_Data = [Train_Data; Test_Data]; % 垂直合并
-
-        % 2.3. 划分特征 X 和标签 Y (SPECTF 标签在第一列, 0/1)
-        Y_raw = Combined_Data(:, 1);        % 标签是第一列 (0 或 1)
-        X = Combined_Data(:, 2:end);        % 特征是第二列到最后一列
-        
-        % 2.4. 标签转换 (将 0/1 转换为 +1/-1 categorical)
-        Y_cell = cell(length(Y_raw), 1);
-        for i = 1:length(Y_raw)
-            if Y_raw(i) == 1
-                Y_cell{i} = '+1'; % 标签 1
-            else
-                Y_cell{i} = '-1'; % 标签 0
+ case 'SONAR'
+        % --- SONAR 加载逻辑 (读取 .all-data 文件) ---
+        try
+            % 关键点：加上 'FileType', 'text'，这样 MATLAB 就能读 .all-data 了
+            opts = detectImportOptions(path1, 'FileType', 'text');
+            opts.VariableNamesLine = 0; % 告诉 MATLAB 第一行不是表头
+            opts.DataLines = [1 Inf];   % 从第一行开始读数据
+            
+            % 读取数据表
+            T = readtable(path1, opts);
+            
+            % 2. 分离特征 X (前60列)
+            % Sonar 数据全是数字，除了最后一列
+            X = table2array(T(:, 1:60));
+            
+            % 3. 分离并转换标签 Y (第61列)
+            % 获取最后一列数据 (通常是 cell array 或 string array)
+            raw_labels = T{:, 61}; 
+            
+            % 初始化 Y 向量
+            Y_cell = cell(length(raw_labels), 1);
+            
+            % 转换标签：M (Mine) -> 1, R (Rock) -> -1
+            for i = 1:length(raw_labels)
+                % 确保转为字符串并去除空格
+                lbl = strtrim(string(raw_labels(i))); 
+                
+                if strcmpi(lbl, 'M')
+                    Y_cell{i} = '1';  % 水雷
+                elseif strcmpi(lbl, 'R')
+                    Y_cell{i} = '-1'; % 岩石
+                else
+                    % 万一读出其他奇怪的东西，保留原样方便报错检查
+                    Y_cell{i} = char(lbl);
+                end
             end
+            
+            % 转为 categorical 类型
+            Y = categorical(Y_cell);
+            
+            disp([' > 成功加载 SONAR 数据。样本数: ', num2str(size(X,1)), ...
+                  ', 特征数: ', num2str(size(X,2))]);
+              
+        catch ME
+            % 详细报错，方便你调试
+            error('data_loader:SonarLoadError', ...
+                  ['SONAR 数据加载失败。\n' ...
+                   '1. 请确认路径正确: %s\n' ...
+                   '2. 请确认文件是 UCI 原始格式 (逗号分隔, 最后一列是 M/R)\n' ...
+                   'MATLAB 错误信息: %s'], path1, ME.message);
         end
-        Y = categorical(Y_cell);
         
     otherwise
         error('data_loader:InvalidDataset', '不支持的数据集名称: %s', dataset_name);

@@ -11,7 +11,7 @@ function main_CoEvolutionFS()
     end
     
     % --- 数据集切换配置 (只需修改这一个标志) ---
-    DATASET_TO_RUN = 'SPECTF'; % 可选值: 'SECOM' 或 'SPECTF'
+    DATASET_TO_RUN = 'SONAR'; % 可选值: 'SECOM' 或 'SPECTF' SONAR 、
     
     if strcmp(DATASET_TO_RUN, 'SECOM')
         % --- SECOM 配置 (原始大样本) ---
@@ -36,7 +36,22 @@ function main_CoEvolutionFS()
         
         % 注意: data_loader 在 SPECTF 模式下需要两个路径 (训练集和测试集)
         [X, Y, ~] = data_loader(TRAIN_PATH, TEST_PATH, DATASET_TO_RUN);
+        
+    % ... (在 SPECTF 的配置之后，else 之前插入) ...
     
+    elseif strcmp(DATASET_TO_RUN, 'SONAR')
+        % --- SONAR 配置 (UCI标准数据集, N=208, D=60) ---
+        disp(' > 正在加载 SONAR 数据集 (N=208, D=60)...');
+        % ***************************************************************
+        % 请根据你的实际路径修改下面这一行
+        DATA_PATH = 'D:\code\ThreeTaskFs\data\sonar\sonar.all-data'; 
+        % ***************************************************************
+        
+        % Sonar 只有一个文件包含特征和标签，所以只传一个路径，第二个参数留空
+        [X, Y, ~] = data_loader(DATA_PATH, '', DATASET_TO_RUN);
+    
+    
+        
     else
         error('main_CoEvolutionFS:InvalidDataset', '请设置 DATASET_TO_RUN 为有效的配置名称。');
     end
@@ -307,7 +322,7 @@ function Output_Final_Results(ParetoFront, Experiment_History, t_start, params)
     end
     
     % 保存最终帕累托解集和每代历史记录 (.mat 文件)
-    save(FileName_mat, 'Final_Pareto_Solutions', 'Experiment_History', 'ParetoFront');
+    save(FileName_mat, 'Final_Pareto_Solutions', 'Experiment_History', 'ParetoFront', 'params', 't_start');
     disp(['MATLAB 历史数据已保存到文件: ', FileName_mat]);
     disp(' ');
 end
