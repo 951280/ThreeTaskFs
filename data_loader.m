@@ -1,148 +1,264 @@
 function [X, Y, FeatureNames] = data_loader(path1, path2, dataset_name)
-% DATA_LOADER 根据 dataset_name 加载和预处理数据。
-%
-% 输入:
-%   path1: [string] 路径 1 (SECOM: data; SPECTF: train)
-%   path2: [string] 路径 2 (SECOM: labels; SPECTF: test)
-%   dataset_name: [string] 数据集名称 ('SECOM' 或 'SPECTF')
-%
-% 输出:
-%   X: [N x D double] 处理后的特征矩阵。
-%   Y: [N x 1 categorical] 分类标签向量 (+1, -1)。
-%   FeatureNames: [cell array] 特征名称。
+% DATA_LOADER 统一数据加载接口
+% 修复版：确保 SONAR 使用 readtable，防止 fopen 错误
 
-% --- 1. 根据数据集名称分发加载逻辑 ---
 switch upper(dataset_name)
     
     case 'SECOM'
-        % --- SECOM 加载逻辑 (大样本，高维，标签分离) ---
-        data_file_path = path1;
-        labels_file_path = path2;
-        
-        % 1.1. 加载特征数据
         try
-            X_raw = dlmread(data_file_path, ' '); 
-            disp(['  > 成功加载特征数据：', data_file_path]);
-        catch ME
-            error('data_loader:FeatureLoadError', '加载特征文件时出错: %s', ME.message);
-        end
-
-        % 1.2. 处理特征数据中的 NaN (零填充)
-        X = X_raw;
-        X(isnan(X)) = 0;
-        
-        % 1.3. 移除冗余的最后一列 (特征 591)
-        if all(X(:, end) == 0)
-            warning('data_loader:RedundantFeature', 'SECOM 数据集最后一列（特征 591）为冗余零值，已移除。');
-            X = X(:, 1:end-1); % 移除最后一列
-        end
-        
-        % 1.4. 加载标签数据
-        try
-            fileID = fopen(labels_file_path, 'r');
+            X = dlmread(path1, ' '); 
+            X(isnan(X)) = 0;
+            if all(X(:, end) == 0), X = X(:, 1:end-1); end
+            
+            fileID = fopen(path2, 'r');
+            % 如果路径错误，fopen 返回 -1，这里加个检查防止报错难懂
+            if fileID == -1
+                error('无法打开标签文件，请检查路径: %s', path2);
+            end
             label_data = textscan(fileID, '%s %s', 'Delimiter', '', 'Whitespace', '\n', 'CollectOutput', true, 'EmptyValue', NaN);
             fclose(fileID);
-
-            raw_labels = label_data{1}(:, 1); 
-            raw_labels = raw_labels(~cellfun('isempty', raw_labels)); % 清理空行
-
-            disp(['  > 成功加载标签数据：', labels_file_path]);
-        catch ME
-            error('data_loader:LabelLoadError', '加载标签文件时出错: %s', ME.message);
-        end
-        
-        % 1.5. 标签转换 (SECOM 原本就是 +1/-1 字符串，直接转换)
-        Y_cell = raw_labels;
-        Y = categorical(Y_cell);
-        
-        % 1.6. 检查样本数量
-        if size(X, 1) ~= length(Y)
-            error('data_loader:SampleMismatch', '特征矩阵 (%d) 和标签向量 (%d) 的样本数量不匹配。', size(X, 1), length(Y));
-        end
-
- case 'SONAR'
-        % --- SONAR 加载逻辑 (读取 .all-data 文件) ---
-        try
-            % 关键点：加上 'FileType', 'text'，这样 MATLAB 就能读 .all-data 了
-            opts = detectImportOptions(path1, 'FileType', 'text');
-            opts.VariableNamesLine = 0; % 告诉 MATLAB 第一行不是表头
-            opts.DataLines = [1 Inf];   % 从第一行开始读数据
             
-            % 读取数据表
+            raw_labels = label_data{1}(:, 1); 
+            raw_labels = raw_labels(~cellfun('isempty', raw_labels));
+            Y = categorical(raw_labels);
+            if size(X, 1) ~= length(Y), error('样本数不匹配'); end
+            disp([' > SECOM 加载成功。N=', num2str(size(X,1))]);
+        catch ME, error('data_loader:SecomError', ME.message); end
+
+    case 'SPECTF'
+        try
+             train = dlmread(path1, ',');
+             test = dlmread(path2, ',');
+             data = [train; test];
+             Y = categorical(cellstr(num2str(data(:,1))));
+             X = data(:, 2:end);
+             disp([' > SPECTF 加载成功。N=', num2str(size(X,1))]);
+        catch ME, error('data_loader:SpectfError', ME.message); end
+
+    case 'SONAR'
+        % ★★★ 修复重点：使用 readtable，不使用 fopen ★★★
+        try
+            disp(['   正在读取: ', path1]);
+            opts = detectImportOptions(path1, 'FileType', 'text');
+            opts.VariableNamesLine = 0; 
             T = readtable(path1, opts);
             
-            % 2. 分离特征 X (前60列)
-            % Sonar 数据全是数字，除了最后一列
+            % 分离特征和标签
             X = table2array(T(:, 1:60));
-            
-            % 3. 分离并转换标签 Y (第61列)
-            % 获取最后一列数据 (通常是 cell array 或 string array)
             raw_labels = T{:, 61}; 
             
-            % 初始化 Y 向量
             Y_cell = cell(length(raw_labels), 1);
-            
-            % 转换标签：M (Mine) -> 1, R (Rock) -> -1
             for i = 1:length(raw_labels)
-                % 确保转为字符串并去除空格
                 lbl = strtrim(string(raw_labels(i))); 
-                
-                if strcmpi(lbl, 'M')
-                    Y_cell{i} = '1';  % 水雷
-                elseif strcmpi(lbl, 'R')
-                    Y_cell{i} = '-1'; % 岩石
+                if strcmpi(lbl, 'M'), Y_cell{i} = '1'; 
+                elseif strcmpi(lbl, 'R'), Y_cell{i} = '-1';
+                else, Y_cell{i} = char(lbl); end
+            end
+            Y = categorical(Y_cell);
+            disp([' > SONAR 加载成功。N=', num2str(size(X,1))]);
+        catch ME
+            error('data_loader:SonarError', ['加载失败，请检查路径是否存在。\n错误详情: ' ME.message]); 
+        end
+
+    case 'GAIT'
+        try
+            file_content = load(path1);
+            vars = fieldnames(file_content);
+            X=[]; Y=[];
+            for i = 1:length(vars)
+                val = file_content.(vars{i});
+                [r, c] = size(val);
+                if r == 48 && c == 321, X = val;
+                elseif (r == 48 && c == 1) || (r == 1 && c == 48)
+                    Y = val; if r==1, Y=Y'; end
+                end
+            end
+            if isempty(X) || isempty(Y), error('Gait 变量未找到'); end
+            X = double(X); Y = categorical(Y);
+            disp([' > Gait 加载成功。N=', num2str(size(X,1))]);
+        catch ME, error('data_loader:GaitError', ME.message); end
+
+    case 'MADELON'
+        try
+            X = dlmread(path1); 
+            Y_raw = dlmread(path2);
+            if size(X, 1) ~= size(Y_raw, 1)
+                if size(X, 2) == size(Y_raw, 1), X = X'; else, error('维度不匹配'); end
+            end
+            Y = categorical(Y_raw);
+            disp([' > Madelon 加载成功。N=', num2str(size(X,1))]);
+        catch ME, error('data_loader:MadelonError', ME.message); end
+        
+    case 'PERIOD_CHANGER'
+        try
+            opts = detectImportOptions(path1, 'FileType', 'text');
+            T = readtable(path1, opts);
+            X = table2array(T(:, 1:end-1));
+            Y = categorical(T{:, end});
+            if size(X, 2) ~= 1177, warning('特征数异常'); end
+            disp([' > Period Changer 加载成功。N=', num2str(size(X,1))]);
+        catch ME, error('data_loader:PeriodError', ME.message); end
+
+    case 'TOXICITY'
+        try
+            opts = detectImportOptions(path1, 'FileType', 'text');
+            opts.VariableNamesLine = 0;
+            T = readtable(path1, opts);
+            X = table2array(T(:, 1:end-1));
+            Y = categorical(T{:, end});
+            if size(X, 2) == 1204, X(:,1)=[]; end 
+            disp([' > Toxicity 加载成功。N=', num2str(size(X,1))]);
+        catch ME, error('data_loader:ToxicityError', ME.message); end
+
+    case 'MICRO_MASS'
+        try
+            opts = detectImportOptions(path1, 'FileType', 'text');
+            if length(opts.VariableNames) <= 1, opts.Delimiter = ';'; end
+            T_X = readtable(path1, opts);
+            if iscell(T_X{1,1}) || isstring(T_X{1,1}), X = table2array(T_X(:, 2:end));
+            else, X = table2array(T_X); end
+            
+            opts_y = detectImportOptions(path2, 'FileType', 'text');
+            if length(opts_y.VariableNames) <= 1, opts_y.Delimiter = ';'; end
+            T_Y = readtable(path2, opts_y);
+            if ismember('Species', T_Y.Properties.VariableNames), raw = T_Y.Species;
+            else, raw = T_Y{:, end}; end
+            Y = categorical(raw);
+            if size(X, 2) > 1300, X = X(:, 1:1300); end
+            disp([' > Micro-Mass 加载成功。N=', num2str(size(X,1))]);
+        catch ME, error('data_loader:MicroMassError', ME.message); end
+
+    case 'INTERNET_ADS'
+        try
+            opts = detectImportOptions(path1, 'FileType', 'text', 'TreatAsEmpty', {'?'});
+            opts.VariableNamesLine = 0; 
+            T = readtable(path1, opts);
+            X = table2array(T(:, 1:end-1));
+            if any(isnan(X(:))), X(isnan(X)) = 0; end
+            Y = categorical(T{:, end});
+            disp([' > Internet Ads 加载成功。N=', num2str(size(X,1))]);
+        catch ME, error('data_loader:AdsError', ME.message); end
+
+    case 'COLON'
+        try
+            file = load(path1); vars = fieldnames(file); X=[]; Y=[];
+            for i=1:length(vars)
+                val=file.(vars{i}); [r,c]=size(val);
+                if r==62&&c==2000, X=val; elseif r==2000&&c==62, X=val'; end
+                if ((r==62&&c==1)||(r==1&&c==62))&&numel(val)==62, Y=val; if r==1, Y=Y'; end; end
+            end
+            if isempty(X)||isempty(Y), if isfield(file,'X'),X=file.X; end; if isfield(file,'Y'),Y=file.Y; end; end
+            X=double(X); Y=categorical(Y);
+            disp([' > Colon 加载成功。N=', num2str(size(X,1))]);
+        catch ME, error('data_loader:ColonError', ME.message); end
+
+    case 'LUNG_CANCER'
+        try
+            file = load(path1); vars = fieldnames(file); X=[]; Y=[];
+            for i=1:length(vars)
+                val=file.(vars{i}); [r,c]=size(val);
+                if r==203&&c==3312, X=val; elseif r==3312&&c==203, X=val'; end
+                if ((r==203&&c==1)||(r==1&&c==203))&&numel(val)==203, Y=val; if r==1, Y=Y'; end; end
+            end
+            X=double(X); Y=categorical(Y);
+            disp([' > Lung Cancer 加载成功。N=', num2str(size(X,1))]);
+        catch ME, error('data_loader:LungError', ME.message); end
+
+    case 'GISETTE'
+        try
+            X = dlmread(path1); 
+            Y = categorical(dlmread(path2));
+            if size(X,1)~=size(Y,1), error('维度不符'); end
+            disp([' > Gisette 加载成功。N=', num2str(size(X,1))]);
+        catch ME, error('data_loader:GisetteError', ME.message); end
+
+    case 'LEUKEMIA'
+        try
+            file = load(path1); vars = fieldnames(file); X=[]; Y=[];
+            for i=1:length(vars)
+                val=file.(vars{i}); [r,c]=size(val);
+                if r==72&&c>1000, X=val; elseif c==72&&r>1000, X=val'; end
+                if ((r==72&&c==1)||(r==1&&c==72)), Y=val; if r==1, Y=Y'; end; end
+            end
+            X=double(X); Y=categorical(Y);
+            disp([' > Leukemia 加载成功。N=', num2str(size(X,1))]);
+        catch ME, error('data_loader:LeukemiaError', ME.message); end
+
+    case 'MUSK'
+        try
+            opts = detectImportOptions(path1, 'FileType', 'text');
+            opts.VariableNamesLine = 0; 
+            T = readtable(path1, opts);
+            X = table2array(T(:, 3:end-1)); % 去除前2列ID
+            Y = categorical(T{:, end});
+            disp([' > Musk 加载成功。N=', num2str(size(X,1))]);
+        catch ME, error('data_loader:MuskError', ME.message); end
+
+    case 'LSVT'
+        try
+            optsX = detectImportOptions(path1, 'Sheet', 'Data');
+            X = table2array(readtable(path1, optsX));
+            optsY = detectImportOptions(path1, 'Sheet', 'Binary response');
+            Y = categorical(table2array(readtable(path1, optsY)));
+            disp([' > LSVT 加载成功。N=', num2str(size(X,1))]);
+        catch ME, error('data_loader:LSVTError', ME.message); end
+
+    case 'ARRHYTHMIA'
+        try
+            opts = detectImportOptions(path1, 'FileType', 'text', 'TreatAsEmpty', {'?'});
+            opts.VariableNamesLine = 0; 
+            T = readtable(path1, opts);
+            
+            % 提取特征
+            X = table2array(T(:, 1:end-1));
+            
+            % 处理缺失值
+            if any(isnan(X(:)))
+                X(isnan(X)) = 0; 
+            end
+            
+            % --- 提取标签并转为二分类 ---
+            % Arrhythmia 原始标签是 1~16
+            raw_labels = T{:, end};
+            if ~isnumeric(raw_labels)
+                % 如果读出来是字符串，先转数字
+                raw_labels = str2double(string(raw_labels));
+            end
+            
+            % 初始化新的二元标签
+            Y_binary = cell(length(raw_labels), 1);
+            
+            for i = 1:length(raw_labels)
+                if raw_labels(i) == 1
+                    % Class 1 是正常
+                    Y_binary{i} = 'Normal'; 
                 else
-                    % 万一读出其他奇怪的东西，保留原样方便报错检查
-                    Y_cell{i} = char(lbl);
+                    % Class 2-16 都是异常
+                    Y_binary{i} = 'Arrhythmia'; 
                 end
             end
             
-            % 转为 categorical 类型
-            Y = categorical(Y_cell);
+            Y = categorical(Y_binary);
+            % ---------------------------
             
-            disp([' > 成功加载 SONAR 数据。样本数: ', num2str(size(X,1)), ...
-                  ', 特征数: ', num2str(size(X,2))]);
-              
+            disp([' > Arrhythmia 加载成功 (已转为二分类)。N=', num2str(size(X,1))]);
+            
         catch ME
-            % 详细报错，方便你调试
-            error('data_loader:SonarLoadError', ...
-                  ['SONAR 数据加载失败。\n' ...
-                   '1. 请确认路径正确: %s\n' ...
-                   '2. 请确认文件是 UCI 原始格式 (逗号分隔, 最后一列是 M/R)\n' ...
-                   'MATLAB 错误信息: %s'], path1, ME.message);
+            error('data_loader:ArrhythmiaError', ME.message); 
         end
-        
+
     otherwise
         error('data_loader:InvalidDataset', '不支持的数据集名称: %s', dataset_name);
 end
-% ====================================================================
-% 2.5移除常数/零方差特征 (兼容 Naive Bayes 和其他敏感模型)
-% ====================================================================
+
+% --- 后处理：移除常数特征 ---
 if ~isempty(X)
-    % 计算每个特征的方差
-    feature_variances = var(X, 0, 1); % 0 for sample variance, 1 for dimension
-    % 找到方差不为零的特征索引
-    non_constant_features = feature_variances > 1e-6; % 使用一个小的容差
-    
-    D_before = size(X, 2);
+    feature_variances = var(X, 0, 1);
+    non_constant_features = feature_variances > 1e-6;
     X = X(:, non_constant_features);
-    D_after = size(X, 2);
-    
-    if D_before > D_after
-        fprintf('  > 已移除 %d 个常数或零方差特征。\n', D_before - D_after);
-    end
+    D_total = size(X, 2);
+    FeatureNames = cell(1, D_total);
+    for i = 1:D_total, FeatureNames{i} = ['Feature_', num2str(i)]; end
 end
-
-% --- 2.6 最终输出和检查 ---
-
-D_total = size(X, 2);
-
-%3 创建特征名称 (适用于任何数据集)
-FeatureNames = cell(1, D_total);
-for i = 1:D_total
-    FeatureNames{i} = ['Feature_', num2str(i)];
-end
-
-disp(['  > 数据加载与预处理完成。样本数: ', num2str(size(X, 1)), '，特征数: ', num2str(D_total)]);
 
 end

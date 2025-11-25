@@ -18,7 +18,7 @@ params.Output.Path = 'D:\code\ThreeTaskFs\Results\'; % <--- 设定输出文件�
 params.Output.NamePrefix = 'CoEvoFS_';               % 结果文件前缀
 
 %% 1. 种群和迭代参数 (Phase 4, 5)
-params.PopSize = 20;            % 种群大小 (所有任务统一)
+params.PopSize = 24;            % 种群大小 (所有任务统一)
 %params.MaxGenerations = 200;    % 最大进化代数
 params.MaxGenerations = 50;    % 临时测试
 params.StopPatience = 10;       % 连续多代适应度未提升的停止代数 (Stopping Condition)
@@ -33,19 +33,19 @@ params.Evaluation.KNN_K = 5;            % K-近邻分类器的 K 值
 % --- Task 1 (主任务: 平衡) f1 ---
 % f1(S) = alpha * Acc(S) + (1 - alpha) * (1 - |S|/N)
 % alpha 用于平衡 Accuracy 和 Feature Compression Ratio。
-params.Fitness.Alpha = 0.7;             % 平衡因子：[0, 1]。0.5 表示平均权重。
+params.Fitness.Alpha = 0.8;             % 平衡因子：[0, 1]。0.5 表示平均权重。
 
 % --- Task 2 (辅助任务 1: 精度优化器) f2 ---
 % f2(S) = Acc - lambda * (|S|/N)
 % lambda 用于惩罚特征数量。
-params.Fitness.Lambda = 0.1;            % 特征数量惩罚项。论文建议 0.05 ~ 0.2。
+params.Fitness.Lambda = 0.01;            % 特征数量惩罚项。论文建议 0.05 ~ 0.2。
 params.Fitness.Lambda_Range = [0.05, 0.2]; % 论文建议范围备忘
 
 % --- Task 3 (辅助任务 2: 紧凑性优化器) f3 ---
 % f3(S) = (1 - |S|/N), if Acc(S) >= theta_acc
 % f3(S) = Acc(S) * (1 - |S|/N), otherwise
 % theta_acc 是最低可接受精度阈值。
-params.Fitness.ThetaAcc = 0.87;          % 最低可接受精度阈值
+params.Fitness.ThetaAcc = 0.80;          % 最低可接受精度阈值
 
 %% 4. 知识共享与迁移参数 (Phase 3, 4)
 
