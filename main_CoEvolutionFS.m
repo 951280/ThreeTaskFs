@@ -1,8 +1,7 @@
 % 文件: main_CoEvolutionFS.m
-
 function main_CoEvolutionFS(target_dataset_name)
 % MAIN_COEVOLUTIONFS 三任务协同进化特征选择算法的主控制函数。
-% 强力精英注入 + 最终结果融合 + 最小化错误率输出
+% 包含：强力精英注入 + 最终结果融合 + 断层填充局部搜索(GFLS) + 参数同步策略
 
     t_start = clock; 
     
@@ -37,7 +36,6 @@ function main_CoEvolutionFS(target_dataset_name)
         disp(' > 正在加载 SONAR 数据集 (N=208, D=60)...');
         DATA_PATH = 'D:\learn\yjs\paper\data\sonar\sonar.all-data'; 
         [X, Y, ~] = data_loader(DATA_PATH, '', DATASET_TO_RUN);
-
     elseif strcmp(DATASET_TO_RUN, 'Gait')
         disp(' > 正在加载 Gait Classification 数据集...');
         DATA_PATH = 'D:\learn\yjs\paper\data\gait+classification\PersonGaitDataSet.mat'; 
@@ -49,7 +47,6 @@ function main_CoEvolutionFS(target_dataset_name)
         DATA_PATH = 'D:\learn\yjs\paper\data\madelon\MADELON\madelon_train.data'; 
         LABELS_PATH = 'D:\learn\yjs\paper\data\madelon\MADELON\madelon_train.labels';
         [X, Y, ~] = data_loader(DATA_PATH, LABELS_PATH, DATASET_TO_RUN);
-
      elseif strcmp(DATASET_TO_RUN, 'Period_Changer')
         disp(' > 正在加载 Period Changer 数据集 (N=90, D=1177)...');
         DATA_PATH = 'D:\learn\yjs\paper\data\period+changer-2\data.csv'; 
@@ -59,13 +56,11 @@ function main_CoEvolutionFS(target_dataset_name)
         disp(' > 正在加载 Toxicity 数据集 (N=171, D=1203)...');     
         DATA_PATH = 'D:\learn\yjs\paper\data\toxicity\data.csv'; 
         [X, Y, ~] = data_loader(DATA_PATH, '', DATASET_TO_RUN);
-
        elseif strcmp(DATASET_TO_RUN, 'Micro_Mass')
         disp(' > 正在加载 Micro-Mass (Pure Spectra) 数据集...');
         DATA_PATH = 'D:\learn\yjs\paper\data\micromass\pure_spectra_matrix.csv'; 
         LABELS_PATH = 'D:\learn\yjs\paper\data\micromass\pure_spectra_metadata.csv';
         [X, Y, ~] = data_loader(DATA_PATH, LABELS_PATH, DATASET_TO_RUN);
-
     elseif strcmp(DATASET_TO_RUN, 'Internet_Ads')
         disp(' > 正在加载 Internet Advertisements 数据集 (N=3279, D=1558)...');
         DATA_PATH = 'D:\learn\yjs\paper\data\internet+advertisements\ad.data'; 
@@ -91,22 +86,18 @@ function main_CoEvolutionFS(target_dataset_name)
         disp(' > 正在加载 Leukemia 数据集 (N=72, D=7070)...');
         DATA_PATH = 'D:\learn\yjs\paper\data\leukemia.mat'; 
         [X, Y, ~] = data_loader(DATA_PATH, '', DATASET_TO_RUN);
-
     elseif strcmp(DATASET_TO_RUN, 'Musk')
         disp(' > 正在加载 Musk (Version 2) 数据集 (N=6598, D=166)...');
         DATA_PATH = 'D:\learn\yjs\paper\data\musk+version+2\clean2.data'; 
         [X, Y, ~] = data_loader(DATA_PATH, '', DATASET_TO_RUN);
-
     elseif strcmp(DATASET_TO_RUN, 'LSVT')
         disp(' > 正在加载 LSVT Voice Rehabilitation 数据集 (N=126, D=309)...');
         DATA_PATH = 'D:\learn\yjs\paper\data\lsvt+voice+rehabilitation\LSVT_voice_rehabilitation.xlsx'; 
         [X, Y, ~] = data_loader(DATA_PATH, '', DATASET_TO_RUN);
-
     elseif strcmp(DATASET_TO_RUN, 'Arrhythmia')
         disp(' > 正在加载 Arrhythmia 数据集 (N=452, D=279)...');
         DATA_PATH = 'D:\learn\yjs\paper\data\arrhythmia\arrhythmia.data'; 
         [X, Y, ~] = data_loader(DATA_PATH, '', DATASET_TO_RUN);
-
     else
         error('main_CoEvolutionFS:InvalidDataset', '请设置 DATASET_TO_RUN 为有效的配置名称。');
     end
@@ -118,151 +109,5 @@ function main_CoEvolutionFS(target_dataset_name)
     fitness_funcs.f1 = @f1_fitness;
     fitness_funcs.f2 = @f2_fitness;
     fitness_funcs.f3 = @f3_fitness;
-
-    % 1.4 初始特征重要性计算
-    disp('  > 正在计算初始特征重要性 (LGBM & Relief-F)...');
-    W_LGBM = getLGBMImportance(X, Y);
-    W_ReliefF = getReliefFImportance(X, Y);
     
-    % 1.5 初始化种群
-    disp('  > 正在初始化三任务种群...');
-    [Pop1_init, ~, ~] = initialFeatureSelection(X, Y, W_LGBM, params, @evaluateSubset, 1);
-    [Pop2_init, ~, F2_domain] = initialFeatureSelection(X, Y, W_LGBM, params, @evaluateSubset, 2); 
-    [Pop3_init, ~, F3_domain] = initialFeatureSelection(X, Y, W_ReliefF, params, @evaluateSubset, 3);
-    
-    Population1 = Pop1_init;
-    Population2 = Pop2_init;
-    Population3 = Pop3_init;
-    
-    % 1.6 初始化知识库 (KB)
-    % 初始阶段：使用 Union (并集) 确保覆盖面
-    Initial_Domain_Indices = union(F2_domain, F3_domain);
-    KB = KnowledgeBase(D_total, Initial_Domain_Indices, params.Knowledge.IM_SV_InitValue);
-    
-    % 1.7 初始评估
-    disp('  > 正在执行初始种群评估...');
-    for ind = Population2
-        ind.evaluate(X, Y, fitness_funcs, params);
-    end
-    for ind = Population3
-        ind.evaluate(X, Y, fitness_funcs, params);
-    end
-    
-    % --- 2. 协同进化主循环 ---
-    
-    MaxGen = params.MaxGenerations;
-    K_Refresh = params.Knowledge.K_Refresh;
-    T_Transfer = params.Knowledge.T_Transfer;
-    
-    ParetoFront_History = {}; 
-    Elite2 = Population2(1).clone(); 
-    Elite3 = Population3(1).clone();
-
-    Experiment_History = struct('Gen', {}, 'Acc_Elite2', {}, 'Count_Elite2', {}, ...
-                            'Acc_Elite3', {}, 'Count_Elite3', {}, ...
-                            'Mean_Fit1', {}, 'Mean_Count1', {}, ...
-                            'KB_DomainSize', {}, ...
-                            'TimePerGen', {}); 
-    
-    % =======================================================
-    % ★★★ 核心修改：初始化全局归档 (Global Archive) ★★★
-    % =======================================================
-    Global_Archive = []; 
-    
-    disp(['--- 协同进化主循环开始，最大代数: ', num2str(MaxGen), ' ---']);
-    
-    for Gen = 1:MaxGen
-        t_gen_start = tic; 
-        disp(['[Gen ', num2str(Gen), '] ------------------------------------']);
-        
-        % --- 2.1 任务独立进化 ---
-        
-        % 任务一 (CSO 主任务)
-        [Population1, ParetoFront] = CSO_Optimizer(Population1, KB, X, Y, params, fitness_funcs, Gen);
-
-        % =======================================================
-        % ★★★ 核心修改：将当代 ParetoFront 加入全局归档 ★★★
-        % =======================================================
-        Current_Pareto_Clones = Individual.empty(0, length(ParetoFront));
-        for k = 1:length(ParetoFront)
-            Current_Pareto_Clones(k) = ParetoFront(k).clone();
-        end
-        
-        if isempty(Global_Archive)
-            Global_Archive = Current_Pareto_Clones;
-        else
-            Global_Archive = [Global_Archive, Current_Pareto_Clones];
-        end
-
-        % 任务二/三 (EDA 辅助任务)
-        [Population2, Elite2] = EDA_Optimizer(Population2, KB, X, Y, params, fitness_funcs, 2);
-        [Population3, Elite3] = EDA_Optimizer(Population3, KB, X, Y, params, fitness_funcs, 3);
-        
-        % =======================================================
-        % ★★★ 核心策略：加大力度，强制注入 Top 3 精英 ★★★
-        % =======================================================
-        
-        [~, sorted_idx] = sort([Population1.Fitness]); 
-        worst_indices = sorted_idx(1:3); 
-        
-        for k = 1:3
-            New_Individual = Elite2.clone(); 
-            if k > 1
-                mutation_idx = randi(length(New_Individual.FeaturesSubset), 1, randi(2));
-                New_Individual.FeaturesSubset(mutation_idx) = ~New_Individual.FeaturesSubset(mutation_idx);
-            end
-            New_Individual.TaskID = 1;
-            New_Individual.evaluate(X, Y, fitness_funcs, params);
-            Population1(worst_indices(k)) = New_Individual;
-        end
-        % =======================================================
-
-        % --- 2.2 知识更新 ---
-        KB = updateIM_SV(KB, Elite2, Elite3, params);
-        
-        % --- 2.3 周期性检查与知识迁移 ---
-        
-        % a. 知识域刷新
-        if mod(Gen, K_Refresh) == 0
-            % 使用 triggerDomainRefresh 执行【交集】策略，并带有空集兜底
-            KB = triggerDomainRefresh(KB, Elite2, Elite3);
-        end
-
-        % b. 知识迁移策略
-        if mod(Gen, T_Transfer) == 0 
-            [Population2, Population3] = transferMainToAux(ParetoFront, Population2, Population3);
-        end
-
-        % --- 2.4 记录与监控 ---
-        ParetoFront_History{Gen} = ParetoFront; %#ok<AGROW>
-        
-        TimePerGen = toc(t_gen_start); 
-        History.Gen = Gen;
-        History.Acc_Elite2 = Elite2.Accuracy;
-        History.Count_Elite2 = Elite2.FeatureCount;
-        History.Acc_Elite3 = Elite3.Accuracy;
-        History.Count_Elite3 = Elite3.FeatureCount;
-        History.KB_DomainSize = KB.DomainSize;
-        History.TimePerGen = TimePerGen;
-
-        P1_Features = [Population1.FeatureCount];
-        P1_Fitness = [Population1.Fitness];
-        History.Mean_Fit1 = mean(P1_Fitness);
-        History.Mean_Count1 = mean(P1_Features);
-
-        Experiment_History(Gen) = History;
-        
-        fprintf('[Gen %d] E2(A/C): %.4f/%d | E3(A/C): %.4f/%d | KB_Domain: %d | Time: %.2fs\n', ...
-                Gen, History.Acc_Elite2, History.Count_Elite2, History.Acc_Elite3, History.Count_Elite3, History.KB_DomainSize, History.TimePerGen);
-    end
-    
-    % --- 3. 最终输出 ---
-    disp('--- 算法执行完毕。---');
-    
-    % *** 传入精英，调用模块化输出函数 ***
-    % =======================================================
-    % ★★★ 核心修改：传入 Global_Archive 而不是 ParetoFront ★★★
-    % =======================================================
-    Output_Final_Results(Global_Archive, Elite2, Elite3, Experiment_History, t_start, params, DATASET_TO_RUN);
-
-end
+    % 1.
