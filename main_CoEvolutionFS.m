@@ -135,6 +135,7 @@ function main_CoEvolutionFS(target_dataset_name)
     Population3 = Pop3_init;
     
     % 1.6 初始化知识库 (KB)
+    % 初始阶段：使用 Union (并集) 确保覆盖面
     Initial_Domain_Indices = union(F2_domain, F3_domain);
     KB = KnowledgeBase(D_total, Initial_Domain_Indices, params.Knowledge.IM_SV_InitValue);
     
@@ -163,6 +164,11 @@ function main_CoEvolutionFS(target_dataset_name)
                             'KB_DomainSize', {}, ...
                             'TimePerGen', {}); 
     
+    % =======================================================
+    % ★★★ 核心修改：初始化全局归档 (Global Archive) ★★★
+    % =======================================================
+    Global_Archive = []; 
+    
     disp(['--- 协同进化主循环开始，最大代数: ', num2str(MaxGen), ' ---']);
     
     for Gen = 1:MaxGen
@@ -173,6 +179,20 @@ function main_CoEvolutionFS(target_dataset_name)
         
         % 任务一 (CSO 主任务)
         [Population1, ParetoFront] = CSO_Optimizer(Population1, KB, X, Y, params, fitness_funcs, Gen);
+
+        % =======================================================
+        % ★★★ 核心修改：将当代 ParetoFront 加入全局归档 ★★★
+        % =======================================================
+        Current_Pareto_Clones = Individual.empty(0, length(ParetoFront));
+        for k = 1:length(ParetoFront)
+            Current_Pareto_Clones(k) = ParetoFront(k).clone();
+        end
+        
+        if isempty(Global_Archive)
+            Global_Archive = Current_Pareto_Clones;
+        else
+            Global_Archive = [Global_Archive, Current_Pareto_Clones];
+        end
 
         % 任务二/三 (EDA 辅助任务)
         [Population2, Elite2] = EDA_Optimizer(Population2, KB, X, Y, params, fitness_funcs, 2);
@@ -204,13 +224,8 @@ function main_CoEvolutionFS(target_dataset_name)
         
         % a. 知识域刷新
         if mod(Gen, K_Refresh) == 0
-            F1_Domain_Mask = Elite2.FeaturesSubset & Elite3.FeaturesSubset; 
-            F1_Domain_Indices = find(F1_Domain_Mask);
-            if isempty(F1_Domain_Indices)
-                 warning('Main:EmptyIntersectionRefresh', 'IM/SV 知识域交集为空，跳过本次刷新。');
-            else
-                KB = KB.refreshDomain(F1_Domain_Indices);
-            end
+            % 使用 triggerDomainRefresh 执行【交集】策略，并带有空集兜底
+            KB = triggerDomainRefresh(KB, Elite2, Elite3);
         end
 
         % b. 知识迁移策略
@@ -244,160 +259,10 @@ function main_CoEvolutionFS(target_dataset_name)
     % --- 3. 最终输出 ---
     disp('--- 算法执行完毕。---');
     
-    % *** 传入精英，准备输出 ***
-   Output_Final_Results(ParetoFront, Elite2, Elite3, Experiment_History, t_start, params, DATASET_TO_RUN);
+    % *** 传入精英，调用模块化输出函数 ***
+    % =======================================================
+    % ★★★ 核心修改：传入 Global_Archive 而不是 ParetoFront ★★★
+    % =======================================================
+    Output_Final_Results(Global_Archive, Elite2, Elite3, Experiment_History, t_start, params, DATASET_TO_RUN);
 
-end
-
-% --- 辅助输出函数 (修改版：输出分类错误率，做最小化问题) ---
-% --- 辅助输出函数 (最终版：包含自动绘图与保存) ---
-function Output_Final_Results(ParetoFront, Elite2, Elite3, Experiment_History, t_start, params, dataset_name)
-    
-    % 0. 定义文件名和路径
-    timestamp = datestr(now,'yyyymmdd_HHMM');
-    prefix = params.Output.NamePrefix;
-    save_path = params.Output.Path;
-    
-    if ~exist(save_path, 'dir')
-        mkdir(save_path);
-    end
-    
-    % 基础文件名 (包含数据集名称)
-    base_name = [dataset_name, '_', prefix]; 
-    
-    FileName_mat = [save_path, base_name, 'Results_', timestamp, '.mat'];
-    FileName_csv = [save_path, base_name, 'History_', timestamp, '.csv'];
-    
-    disp(' ');
-    fprintf('--- 正在融合多任务解集 [%s] ---\n', dataset_name);
-    
-    % =======================================================
-    % 1. 融合与筛选 (最小化错误率 & 最小化特征数)
-    % =======================================================
-    Candidate_Pool = [ParetoFront, Elite2, Elite3];
-    
-    Final_Indices = [];
-    for i = 1:length(Candidate_Pool)
-        dominated = false;
-        Sol_A = Candidate_Pool(i);
-        Error_A = 1 - Sol_A.Accuracy; 
-        
-        for j = 1:length(Candidate_Pool)
-            if i == j, continue; end
-            Sol_B = Candidate_Pool(j);
-            Error_B = 1 - Sol_B.Accuracy; 
-            
-            % 检查 B 是否支配 A
-            if (Error_B <= Error_A) && (Sol_B.FeatureCount <= Sol_A.FeatureCount) && ...
-               ((Error_B < Error_A) || (Sol_B.FeatureCount < Sol_A.FeatureCount))
-                dominated = true;
-                break;
-            end
-        end
-        
-        if ~dominated
-            Final_Indices = [Final_Indices, i];
-        end
-    end
-    
-    Filtered_Solutions = Candidate_Pool(Final_Indices);
-    NumSolutions = length(Filtered_Solutions);
-    disp(['最终帕累托前沿 (融合后) 包含 ', num2str(NumSolutions), ' 个非支配解。']);
-    
-    % 转换结构体
-    Final_Pareto_Solutions = struct('Acc', {}, 'Error', {}, 'Count', {}, 'Features', {});
-    for i = 1:NumSolutions
-        Ind = Filtered_Solutions(i);
-        Final_Pareto_Solutions(i).Acc = Ind.Accuracy;
-        Final_Pareto_Solutions(i).Error = 1 - Ind.Accuracy;
-        Final_Pareto_Solutions(i).Count = Ind.FeatureCount;
-        Final_Pareto_Solutions(i).Features = Ind.FeaturesSubset;
-    end
-
-    % =======================================================
-    % 2. 文本输出与记录
-    % =======================================================
-    if ~isempty(Final_Pareto_Solutions)
-        all_counts = [Final_Pareto_Solutions.Count];
-        [~, min_count_idx] = min(all_counts);
-        Best_Comp_Solution = Final_Pareto_Solutions(min_count_idx);
-        
-        all_errors = [Final_Pareto_Solutions.Error];
-        [~, min_err_idx] = min(all_errors);
-        Best_Perf_Solution = Final_Pareto_Solutions(min_err_idx);
-        
-        Total_Gen = length(Experiment_History);
-        Total_Time_Sec = etime(clock, t_start); 
-        
-        History_Table = struct2table(Experiment_History);
-        writetable(History_Table, FileName_csv);
-        
-        output_str = sprintf('\n========================================\n');
-        output_str = [output_str, sprintf(' 运行结果摘要: %s\n', dataset_name)];
-        output_str = [output_str, sprintf('========================================\n')];
-        output_str = [output_str, sprintf('KFold=%d, Gen=%d\n', params.Evaluation.KFold, Total_Gen)];
-        output_str = [output_str, sprintf('总运行时间: %.2f 秒\n', Total_Time_Sec)];
-        output_str = [output_str, sprintf('\n--- 最佳解 (最小化问题) ---\n')];
-        output_str = [output_str, sprintf('[最低错误率] 特征数: %d, 错误率: %.4f (精度: %.4f)\n', ...
-            Best_Perf_Solution.Count, Best_Perf_Solution.Error, Best_Perf_Solution.Acc)];
-        output_str = [output_str, sprintf('[最佳压缩率] 特征数: %d, 错误率: %.4f (精度: %.4f)\n', ...
-            Best_Comp_Solution.Count, Best_Comp_Solution.Error, Best_Comp_Solution.Acc)];
-        
-        disp(output_str);
-        
-        txt_filename = [save_path, base_name, 'Summary_', timestamp, '.txt'];
-        fid = fopen(txt_filename, 'w');
-        fprintf(fid, '%s', output_str);
-        fclose(fid);
-        
-        % =======================================================
-        % 3. ★★★ 自动绘图并保存 (Auto Plotting) ★★★
-        % =======================================================
-        disp('正在生成并保存结果图...');
-        
-        % --- 图1: 帕累托前沿 (Pareto Front) ---
-        % 'Visible', 'off' 保证后台运行不弹窗，适合批量跑
-        fig1 = figure('Visible', 'off'); 
-        scatter(all_counts, all_errors, 80, 'filled', 'MarkerFaceColor', [0.85 0.32 0.09]);
-        
-        xlabel('Number of Selected Features'); 
-        ylabel('Classification Error Rate');
-        title(['Pareto Front - ', dataset_name]);
-        grid on;
-        
-        % 保存为 PNG 和 FIG (方便后续修改)
-        saveas(fig1, [save_path, base_name, 'Pareto.png']);
-        savefig(fig1, [save_path, base_name, 'Pareto.fig']);
-        close(fig1); % 关闭图形释放内存
-        
-        % --- 图2: 收敛曲线 (Convergence) ---
-        fig2 = figure('Visible', 'off');
-        
-        % 提取数据
-        history_error = 1 - [Experiment_History.Acc_Elite2]; % Task 2 最佳错误率
-        history_feat = [Experiment_History.Mean_Count1];     % Task 1 平均特征数
-        
-        yyaxis left
-        plot(1:length(history_error), history_error, '-o', 'LineWidth', 1.5);
-        ylabel('Best Error Rate (Task 2)');
-        
-        yyaxis right
-        plot(1:length(history_feat), history_feat, '--', 'LineWidth', 1.5);
-        ylabel('Avg Feature Count (Task 1)');
-        
-        xlabel('Generation');
-        title(['Convergence Curve - ', dataset_name]);
-        legend({'Best Error', 'Avg Features'}, 'Location', 'best');
-        grid on;
-        
-        saveas(fig2, [save_path, base_name, 'Convergence.png']);
-        savefig(fig2, [save_path, base_name, 'Convergence.fig']);
-        close(fig2);
-        
-        disp(['图片已保存至: ', save_path]);
-    end
-    
-    save(FileName_mat, 'Final_Pareto_Solutions', 'Experiment_History', 'ParetoFront', 'params', 't_start', 'dataset_name');
-    disp(['MATLAB 数据已保存: ', FileName_mat]);
-    disp(' ');
 end

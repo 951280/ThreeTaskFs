@@ -1,3 +1,4 @@
+% FitnessAndEval/evaluateSubset.m
 function accuracy = evaluateSubset(X, Y, subset_mask, params)
 % EVALUATESUBSET 使用特征子集对数据进行 K-折交叉验证，并返回平均分类准确率。
 % 更新：增加了对小样本/不平衡类别的自动降级处理 (Stratified -> Random)

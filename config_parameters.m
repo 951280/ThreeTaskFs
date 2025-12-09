@@ -18,9 +18,9 @@ params.Output.Path = 'D:\code\ThreeTaskFs\Results\'; % <--- 设定输出文件�
 params.Output.NamePrefix = 'CoEvoFS_';               % 结果文件前缀
 
 %% 1. 种群和迭代参数 (Phase 4, 5)
-params.PopSize = 24;            % 种群大小 (所有任务统一)
+params.PopSize = 50;            % 种群大小 (所有任务统一)
 %params.MaxGenerations = 200;    % 最大进化代数
-params.MaxGenerations = 50;    % 临时测试
+params.MaxGenerations = 100;    % 临时测试
 params.StopPatience = 10;       % 连续多代适应度未提升的停止代数 (Stopping Condition)
 
 %% 2. 分类器和评估参数 (Phase 1, 4)
