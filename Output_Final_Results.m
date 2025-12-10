@@ -163,7 +163,7 @@ function Output_Final_Results(Global_Archive, Elite2, Elite3, Experiment_History
         
         % 2. 计算 HV
         % 参考点 (Reference Point): 推荐设置为 [1.1, 1.1] (针对归一化后的数据)
-        RefPoint = [1, 1]; 
+        RefPoint = [1.1, 1.1]; 
         HV_Value = Calculate_HV(Obtained_PF, RefPoint);
         
         % 3. 打印并追加记录
