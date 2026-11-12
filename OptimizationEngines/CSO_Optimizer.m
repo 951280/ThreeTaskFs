@@ -1,5 +1,4 @@
 % OptimizationEngines/CSO_Optimizer.m
-
 function [Population, ParetoFront] = CSO_Optimizer(Population, KnowledgeBase, X, Y, params, fitness_funcs, Generation)
 % CSO_OPTIMIZER 实现了主任务 (任务一) 的 CSO 竞争群多目标优化。
 %
@@ -14,12 +13,11 @@ function [Population, ParetoFront] = CSO_Optimizer(Population, KnowledgeBase, X,
 % 输出:
 %   Population: 更新了位置和速度的种群。
 %   ParetoFront: 包含非支配解的 Individual 数组。
-
     D_total = size(X, 2);
     PopSize = length(Population);
     
     % --- 配置参数 ---
-    P_TRANS = params.Knowledge.T_Transfer; % 知识迁移概率 (或周期性判断)
+    P_TRANS = 0.1; % 手动设置为 0.1
     R_V = 0.5; % 额外速度校正的随机因子 (对应公式 (4) 中的 r4)
     
     % --- 1. 双目标评估和解码 (P -> S) ---
@@ -27,13 +25,11 @@ function [Population, ParetoFront] = CSO_Optimizer(Population, KnowledgeBase, X,
     
     % 从 params 中获取 Task 1 所需的 alpha 参数
     alpha = params.Fitness.Alpha; % <--- 新增: 获取 alpha
-
     for i = 1:PopSize
         % 解码：将实数位置 P 映射到二元子集 S (使用 Sigmoid 或简单二值化)
         % 简化的二值化 (阈值 0.5)
         P = Population(i).Position;
         S_mask = P > 0.5; 
-
         % 确保特征子集不为空 (防止 evaluateSubset 警告/CSO搜索崩溃)
         if sum(S_mask) == 0
              % 如果为空，强制选中 P 值最高的特征 (至少保证 1 个特征)
@@ -44,7 +40,6 @@ function [Population, ParetoFront] = CSO_Optimizer(Population, KnowledgeBase, X,
         % 计算两个目标值
         Acc = evaluateSubset(X, Y, S_mask, params);
         Compression = 1 - (sum(S_mask) / D_total);
-
         % 更新个体属性 (核心属性)
         Population(i).FeaturesSubset = S_mask;
         Population(i).Accuracy = Acc;
@@ -89,17 +84,20 @@ function [Population, ParetoFront] = CSO_Optimizer(Population, KnowledgeBase, X,
         W = Population(W_idx);
         
         r1 = rand(); r2 = rand(); r3 = rand(); r4 = rand(); 
-
-        % 4.1 知识迁移判断 (简化：基于概率 P_TRANS)
-        if rand() < P_TRANS
+        
+        % =======================================================
+        % ★★★ 核心修改：仅在启用多任务且知识库非空时才迁移 ★★★
+        % =======================================================
+        Is_MultiTask = isfield(params, 'Ablation') && params.Ablation.Enable_MultiTask && ~isempty(KnowledgeBase);
+        
+        % 4.1 知识迁移判断
+        if Is_MultiTask && (rand() < P_TRANS)
             % Step 4: 知识迁移更新 (向 Winner 和 Knowledge Vector 学习)
             
             % 获取知识库推荐向量 KB_V (作为推荐位置 P_KB)
             P_KB = GenerateKnowledgeVector(KnowledgeBase, params, D_total); 
-
             % 速度更新: V_L = r1*V_L + r2*(P_W - P_L) + r3*(P_KB - P_L)
             new_V = r1 * L.Velocity + r2 * (W.Position - L.Position) + r3 * (P_KB - L.Position);
-
         else
             % Step 6: CSO 标准更新 (向 Winner W 和 随机 Winner W2 学习)
             
@@ -111,11 +109,10 @@ function [Population, ParetoFront] = CSO_Optimizer(Population, KnowledgeBase, X,
                 W2_idx = WinnerPool(randi(length(WinnerPool)));
             end
             W2 = Population(W2_idx);
-
             % 速度更新: V_L = r1*V_L + r2*(P_W - P_L) + r3*(P_W2 - P_L)
             new_V = r1 * L.Velocity + r2 * (W.Position - L.Position) + r3 * (W2.Position - L.Position);
-
         end
+        % =======================================================
         
         % 4.2 位置更新 (基于公式(4)的变体)
         % P_new = P_L + new_V + r4*(new_V - V_L)

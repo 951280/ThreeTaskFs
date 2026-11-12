@@ -1,0 +1,5 @@
+# Experiment results: large and volatile, not tracked
+Results/
+*.fig
+*.asv
+Experiment_Results_*.mat

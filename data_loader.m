@@ -1,6 +1,6 @@
 function [X, Y, FeatureNames] = data_loader(path1, path2, dataset_name)
 % DATA_LOADER 统一数据加载接口
-% 修复版：确保 SONAR 使用 readtable，防止 fopen 错误
+% 包含：特定数据集处理 + Github/ASU 通用 .mat 加载器
 
 switch upper(dataset_name)
     
@@ -9,15 +9,10 @@ switch upper(dataset_name)
             X = dlmread(path1, ' '); 
             X(isnan(X)) = 0;
             if all(X(:, end) == 0), X = X(:, 1:end-1); end
-            
             fileID = fopen(path2, 'r');
-            % 如果路径错误，fopen 返回 -1，这里加个检查防止报错难懂
-            if fileID == -1
-                error('无法打开标签文件，请检查路径: %s', path2);
-            end
+            if fileID == -1, error('无法打开标签文件: %s', path2); end
             label_data = textscan(fileID, '%s %s', 'Delimiter', '', 'Whitespace', '\n', 'CollectOutput', true, 'EmptyValue', NaN);
             fclose(fileID);
-            
             raw_labels = label_data{1}(:, 1); 
             raw_labels = raw_labels(~cellfun('isempty', raw_labels));
             Y = categorical(raw_labels);
@@ -36,17 +31,13 @@ switch upper(dataset_name)
         catch ME, error('data_loader:SpectfError', ME.message); end
 
     case 'SONAR'
-        % ★★★ 修复重点：使用 readtable，不使用 fopen ★★★
         try
             disp(['   正在读取: ', path1]);
             opts = detectImportOptions(path1, 'FileType', 'text');
             opts.VariableNamesLine = 0; 
             T = readtable(path1, opts);
-            
-            % 分离特征和标签
             X = table2array(T(:, 1:60));
             raw_labels = T{:, 61}; 
-            
             Y_cell = cell(length(raw_labels), 1);
             for i = 1:length(raw_labels)
                 lbl = strtrim(string(raw_labels(i))); 
@@ -56,9 +47,7 @@ switch upper(dataset_name)
             end
             Y = categorical(Y_cell);
             disp([' > SONAR 加载成功。N=', num2str(size(X,1))]);
-        catch ME
-            error('data_loader:SonarError', ['加载失败，请检查路径是否存在。\n错误详情: ' ME.message]); 
-        end
+        catch ME, error('data_loader:SonarError', ME.message); end
 
     case 'GAIT'
         try
@@ -73,7 +62,6 @@ switch upper(dataset_name)
                     Y = val; if r==1, Y=Y'; end
                 end
             end
-            if isempty(X) || isempty(Y), error('Gait 变量未找到'); end
             X = double(X); Y = categorical(Y);
             disp([' > Gait 加载成功。N=', num2str(size(X,1))]);
         catch ME, error('data_loader:GaitError', ME.message); end
@@ -95,7 +83,6 @@ switch upper(dataset_name)
             T = readtable(path1, opts);
             X = table2array(T(:, 1:end-1));
             Y = categorical(T{:, end});
-            if size(X, 2) ~= 1177, warning('特征数异常'); end
             disp([' > Period Changer 加载成功。N=', num2str(size(X,1))]);
         catch ME, error('data_loader:PeriodError', ME.message); end
 
@@ -117,7 +104,6 @@ switch upper(dataset_name)
             T_X = readtable(path1, opts);
             if iscell(T_X{1,1}) || isstring(T_X{1,1}), X = table2array(T_X(:, 2:end));
             else, X = table2array(T_X); end
-            
             opts_y = detectImportOptions(path2, 'FileType', 'text');
             if length(opts_y.VariableNames) <= 1, opts_y.Delimiter = ';'; end
             T_Y = readtable(path2, opts_y);
@@ -189,7 +175,7 @@ switch upper(dataset_name)
             opts = detectImportOptions(path1, 'FileType', 'text');
             opts.VariableNamesLine = 0; 
             T = readtable(path1, opts);
-            X = table2array(T(:, 3:end-1)); % 去除前2列ID
+            X = table2array(T(:, 3:end-1)); 
             Y = categorical(T{:, end});
             disp([' > Musk 加载成功。N=', num2str(size(X,1))]);
         catch ME, error('data_loader:MuskError', ME.message); end
@@ -208,43 +194,72 @@ switch upper(dataset_name)
             opts = detectImportOptions(path1, 'FileType', 'text', 'TreatAsEmpty', {'?'});
             opts.VariableNamesLine = 0; 
             T = readtable(path1, opts);
-            
-            % 提取特征
             X = table2array(T(:, 1:end-1));
-            
-            % 处理缺失值
-            if any(isnan(X(:)))
-                X(isnan(X)) = 0; 
-            end
-            
-            % --- 提取标签并转为二分类 ---
-            % Arrhythmia 原始标签是 1~16
+            if any(isnan(X(:))), X(isnan(X)) = 0; end
             raw_labels = T{:, end};
-            if ~isnumeric(raw_labels)
-                % 如果读出来是字符串，先转数字
-                raw_labels = str2double(string(raw_labels));
-            end
-            
-            % 初始化新的二元标签
+            if ~isnumeric(raw_labels), raw_labels = str2double(string(raw_labels)); end
             Y_binary = cell(length(raw_labels), 1);
-            
             for i = 1:length(raw_labels)
-                if raw_labels(i) == 1
-                    % Class 1 是正常
-                    Y_binary{i} = 'Normal'; 
-                else
-                    % Class 2-16 都是异常
-                    Y_binary{i} = 'Arrhythmia'; 
-                end
+                if raw_labels(i) == 1, Y_binary{i} = 'Normal'; 
+                else, Y_binary{i} = 'Arrhythmia'; end
+            end
+            Y = categorical(Y_binary);
+            disp([' > Arrhythmia 加载成功 (已转为二分类)。N=', num2str(size(X,1))]);
+        catch ME, error('data_loader:ArrhythmiaError', ME.message); end
+
+    % =========================================================================
+    % ★★★ 新增：Github/ASU 通用 .mat 加载器 (智能识别 X/Y 及转置) ★★★
+    % =========================================================================
+    case {'BASEHOCK', 'RELATHE', 'PCMAC', 'WARPPIE10P', 'TOX-171', 'ISOLET', ...
+          'GLIOMA', 'CLL_SUB_111', 'ORL', 'COIL20'} 
+        try
+            % 1. 自动补全 .mat 并检查文件
+            if ~contains(path1, '.mat'), path1 = [path1, '.mat']; end
+            if ~exist(path1, 'file')
+                 [~, name, ext] = fileparts(path1);
+                 alt_path = fullfile('data', [name, ext]); % 尝试去 data 目录找
+                 if exist(alt_path, 'file'), path1 = alt_path; end
             end
             
-            Y = categorical(Y_binary);
-            % ---------------------------
+            disp(['  > 正在尝试加载文件: ', path1]);
+            mat_data = load(path1);
             
-            disp([' > Arrhythmia 加载成功 (已转为二分类)。N=', num2str(size(X,1))]);
+            % 2. 智能寻找特征变量 (X / fea / data)
+            if isfield(mat_data, 'X'), X = mat_data.X;
+            elseif isfield(mat_data, 'fea'), X = mat_data.fea;
+            elseif isfield(mat_data, 'data'), X = mat_data.data;
+            else, error('未在 .mat 中找到特征变量 (需包含 X, fea 或 data)'); end
+            
+            % 3. 智能寻找标签变量 (Y / gnd / label)
+            if isfield(mat_data, 'Y'), Y = mat_data.Y;
+            elseif isfield(mat_data, 'gnd'), Y = mat_data.gnd;
+            elseif isfield(mat_data, 'label'), Y = mat_data.label;
+            elseif isfield(mat_data, 'labels'), Y = mat_data.labels;
+            else, error('未在 .mat 中找到标签变量 (需包含 Y, gnd 或 label)'); end
+            
+            % 4. ★关键修正：自动转置 (Auto-Transpose) ★
+            % 代码标准: [样本数 N x 特征数 D]
+            [r, c] = size(X);
+            N_samples = length(Y);
+            
+            if r == N_samples
+                % NxD，无需转置
+            elseif c == N_samples
+                % DxN，需要转置
+                X = X'; 
+                disp('  > [提示] 检测到特征矩阵为 DxN 格式，已自动转置为 NxD。');
+            else
+                warning('样本数(%d)与特征矩阵维度(%d x %d)均不匹配，请检查数据！', N_samples, r, c);
+            end
+            
+            % 5. 格式统一化
+            X = double(X);
+            Y = categorical(Y); 
+            
+            disp([' > ', dataset_name, ' 加载成功。N=', num2str(size(X,1)), ', D=', num2str(size(X,2))]);
             
         catch ME
-            error('data_loader:ArrhythmiaError', ME.message); 
+            error('data_loader:GeneralMatError', ['加载 .mat 失败: ', ME.message]);
         end
 
     otherwise
@@ -260,5 +275,4 @@ if ~isempty(X)
     FeatureNames = cell(1, D_total);
     for i = 1:D_total, FeatureNames{i} = ['Feature_', num2str(i)]; end
 end
-
 end

@@ -1,6 +1,6 @@
 % 文件名: Output_Final_Results.m
 function Output_Final_Results(Global_Archive, Elite2, Elite3, Experiment_History, t_start, params, dataset_name)
-% OUTPUT_FINAL_RESULTS 算法结束后的数据处理、融合、保存与绘图模块
+% OUTPUT_FINAL_RESULTS 算法结束后的数据处理、融合与保存模块 (无绘图版)
 %
 % 输入:
 %   Global_Archive: 全局归档（包含每一代的 Pareto 前沿解）
@@ -11,7 +11,10 @@ function Output_Final_Results(Global_Archive, Elite2, Elite3, Experiment_History
 %   dataset_name: 数据集名称
 
     % 0. 定义文件名和路径
-    timestamp = datestr(now,'yyyymmdd_HHMM');
+    % 为了兼容 run_local_batch.m，如果 main 函数传入了 run_id，这里会被覆盖
+    % 如果是独立运行，这里生成带时间戳的文件名
+    
+    timestamp = datestr(now,'yyyymmdd_HHMMSS'); % 加了秒，防止覆盖
     prefix = params.Output.NamePrefix;
     save_path = params.Output.Path;
     
@@ -19,11 +22,13 @@ function Output_Final_Results(Global_Archive, Elite2, Elite3, Experiment_History
         mkdir(save_path);
     end
     
-    % 基础文件名 (包含数据集名称)
+    % 基础文件名
     base_name = [dataset_name, '_', prefix]; 
     
-    FileName_mat = [save_path, base_name, 'Results_', timestamp, '.mat'];
-    FileName_csv = [save_path, base_name, 'History_', timestamp, '.csv'];
+    % 检查是否通过 main 函数传入了指定的文件名逻辑 (通过 params.Output.Path 传递)
+    % 这里我们统一使用时间戳保存，确保每次运行都不覆盖
+    FileName_mat = fullfile(save_path, [base_name, 'Result_', timestamp, '.mat']);
+    FileName_csv = fullfile(save_path, [base_name, 'History_', timestamp, '.csv']);
     
     disp(' ');
     fprintf('--- 正在融合多任务解集 [%s] ---\n', dataset_name);
@@ -32,8 +37,15 @@ function Output_Final_Results(Global_Archive, Elite2, Elite3, Experiment_History
     % 1. 融合与筛选 (去重 & 最小化错误率 & 最小化特征数)
     % =======================================================
     
-    % 将全局归档和最后一代精英放入原始池
-    Raw_Pool = [Global_Archive, Elite2, Elite3];
+    % 将全局归档和最后一代精英放入原始池。
+    % 消融实验可能只启用 Task2 或 Task3，因此这里要跳过空精英。
+    Raw_Pool = Global_Archive;
+    if ~isempty(Elite2)
+        Raw_Pool = [Raw_Pool, Elite2];
+    end
+    if ~isempty(Elite3)
+        Raw_Pool = [Raw_Pool, Elite3];
+    end
     
     fprintf(' > 原始候选解数量 (含重复): %d\n', length(Raw_Pool));
     
@@ -96,7 +108,7 @@ function Output_Final_Results(Global_Archive, Elite2, Elite3, Experiment_History
         Final_Pareto_Solutions(i).Count = Ind.FeatureCount;
         Final_Pareto_Solutions(i).Features = Ind.FeaturesSubset;
     end
-
+    
     % =======================================================
     % 2. 文本输出与记录
     % =======================================================
@@ -133,7 +145,7 @@ function Output_Final_Results(Global_Archive, Elite2, Elite3, Experiment_History
         disp(output_str);
         
         % 保存基础摘要到 TXT
-        txt_filename = [save_path, base_name, 'Summary_', timestamp, '.txt'];
+        txt_filename = fullfile(save_path, [base_name, 'Summary_', timestamp, '.txt']);
         fid = fopen(txt_filename, 'w');
         fprintf(fid, '%s', output_str);
         fclose(fid);
@@ -141,10 +153,6 @@ function Output_Final_Results(Global_Archive, Elite2, Elite3, Experiment_History
         % =======================================================
         % 2.1 ★★★ 计算 HV 指标 (Hypervolume) ★★★
         % =======================================================
-        
-        % 1. 准备数据矩阵 [N x 2]
-        % 目标1: 错误率 (Error, 0-1)
-        % 目标2: 特征比例 (Count / D_total, 0-1)
         
         % 获取总特征维度 D_total (用于归一化)
         if ~isempty(Final_Pareto_Solutions)
@@ -162,7 +170,6 @@ function Output_Final_Results(Global_Archive, Elite2, Elite3, Experiment_History
         end
         
         % 2. 计算 HV
-        % 参考点 (Reference Point): 推荐设置为 [1.1, 1.1] (针对归一化后的数据)
         RefPoint = [1.1, 1.1]; 
         HV_Value = Calculate_HV(Obtained_PF, RefPoint);
         
@@ -173,62 +180,21 @@ function Output_Final_Results(Global_Archive, Elite2, Elite3, Experiment_History
         fid = fopen(txt_filename, 'a'); 
         fprintf(fid, 'Hypervolume (HV): %.4f\n', HV_Value);
         fclose(fid);
-
-        % =======================================================
-        % 3. ★★★ 自动绘图并保存 (Auto Plotting) ★★★
-        % =======================================================
-        disp('正在生成并保存结果图...');
         
-        % --- 图1: 帕累托前沿 (Pareto Front) ---
-        fig1 = figure('Visible', 'off'); % 后台绘图
-        scatter(all_counts, all_errors, 80, 'filled', 'MarkerFaceColor', [0.85 0.32 0.09]);
-        
-        xlabel('Number of Selected Features'); 
-        ylabel('Classification Error Rate');
-        title(['Pareto Front - ', dataset_name]);
-        grid on;
-        
-        saveas(fig1, [save_path, base_name, 'Pareto_', timestamp, '.png']);
-        savefig(fig1, [save_path, base_name, 'Pareto_', timestamp, '.fig']);
-        close(fig1);
-        
-        % --- 图2: 收敛曲线 (Convergence) ---
-        fig2 = figure('Visible', 'off');
-        
-        % 提取数据
-        history_error = 1 - [Experiment_History.Acc_Elite2]; % Task 2 最佳错误率
-        history_feat = [Experiment_History.Mean_Count1];     % Task 1 平均特征数
-        
-        yyaxis left
-        plot(1:length(history_error), history_error, '-o', 'LineWidth', 1.5);
-        ylabel('Best Error Rate (Task 2)');
-        
-        yyaxis right
-        plot(1:length(history_feat), history_feat, '--', 'LineWidth', 1.5);
-        ylabel('Avg Feature Count (Task 1)');
-        
-        xlabel('Generation');
-        title(['Convergence Curve - ', dataset_name]);
-        legend({'Best Error', 'Avg Features'}, 'Location', 'best');
-        grid on;
-        
-        saveas(fig2, [save_path, base_name, 'Convergence_', timestamp, '.png']);
-        savefig(fig2, [save_path, base_name, 'Convergence_', timestamp, '.fig']);
-        close(fig2);
-        disp(['图片已保存至: ', save_path]);
     end
     
-    % 保存完整工作区数据
-    % 注意：保存 Global_Archive 而不是 ParetoFront
+    % =======================================================
+    % 3. 保存完整工作区数据 (绝不画图)
+    % =======================================================
+    disp(['  > [保存] 正在保存 .mat 数据至: ', FileName_mat]);
     save(FileName_mat, 'Final_Pareto_Solutions', 'Experiment_History', 'Global_Archive', 'params', 't_start', 'dataset_name');
-    disp(['MATLAB 数据已保存: ', FileName_mat]);
+    disp('  > [完成] 结果已保存。绘图请在本地运行 Plot_Paper_Comparison.m');
     disp(' ');
 end
 
 % =======================================================
 % 4. 辅助函数
 % =======================================================
-
 % --- 辅助函数：计算二维 Hypervolume ---
 function score = Calculate_HV(PopObj, RefPoint)
     % PopObj: [N x 2] 矩阵，第一列为Error，第二列为FeatureRatio
@@ -251,11 +217,8 @@ function score = Calculate_HV(PopObj, RefPoint)
     SortedObj = SortedObj(unique_idx, :);
     
     % 4. 计算并集面积 (切条法)
-    % 排序后 X (Error) 递增，Y (Ratio) 必然递减 (否则就是被支配了)
     score = 0;
     
-    % 每一条的宽度 = 下一个点的 X - 当前点的 X
-    % 每一条的高度 = 参考点 Y - 当前点的 Y
     for i = 1:size(SortedObj, 1)-1
         width = SortedObj(i+1, 1) - SortedObj(i, 1);
         height = RefPoint(2) - SortedObj(i, 2);
@@ -264,7 +227,7 @@ function score = Calculate_HV(PopObj, RefPoint)
         end
     end
     
-    % 加上最后一块 (从最后一个点到参考点 X)
+    % 加上最后一块
     width = RefPoint(1) - SortedObj(end, 1);
     height = RefPoint(2) - SortedObj(end, 2);
     if width > 0 && height > 0

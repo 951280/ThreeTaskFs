@@ -1,51 +1,73 @@
-% 文件: run_local_batch.m
-% 功能: 批量运行本地数据集
+% 文件: run_local_batch_repeated.m
+% 功能: 批量运行本地数据集 (每个数据集重复运行多次)
 clear; clc;
 
 % =========================================================================
-% ★★★ 本地运行列表 (已剔除超大数据集) ★★★
-% 注意：名字必须与 main_CoEvolutionFS.m 中的 strcmp 判断完全一致
+% ★★★ 核心配置 ★★★
 % =========================================================================
-dataset_list = {
-   'SONAR', ...            % N=208,  D=60   (极快)
-  % 'Gait', ...             % N=48,   D=321  (极快) 
-  %  'Colon', ...            % N=62,   D=2000 (快)
-  %  'Leukemia', ...         % N=72,   D=7070 (快)
-  %  'Lung_Cancer', ...      % N=203,  D=3312 (快)
-  % 'Toxicity', ...         % N=171,  D=1203 (快)
-  % 'Period_Changer', ...   % N=90,   D=1177 (快)
-  %'Micro_Mass', ...       % N=571,  D=1300 (中等，约5-10分钟)
-   %'Internet_Ads'          % N=3279, D=1558 (较慢，约30-60分钟，可视情况保留)
-    };
+REPEAT_TIMES = 1;  % 每个数据集跑几遍？(建议设为 5 以进行统计分析)
 
-% 这里的 'Internet_Ads' 如果你觉得太慢，可以注释掉，留给服务器跑。
-% 'GISETTE', 'MUSK', 'MADELON', 'SECOM' 强烈建议留给服务器。
+% ★★★ 黄金数据集列表 (High Dimension & Safe Sample Size) ★★★
+% 请确保这些 .mat 文件位于代码目录下的 data/ 文件夹中
+% 1. 定义数据集列表
+dataset_list = { 
+   % --- 原有 9 个 ---
+   'SONAR'              
+   'Gait'             
+   'Colon'            
+   'Leukemia'         
+   'Lung_Cancer'      
+   'Toxicity'         
+   'Period_Changer'   
+   'Micro_Mass'       
+   'Internet_Ads'
+   
+   % --- 新增 6 个 (高维/多样本) ---
+   'BASEHOCK'    
+   'RELATHE'     
+   'PCMAC'       
+   'warpPIE10P'      
+   'TOX-171'         
+   'ISOLET'          
+};
 
-disp('======================================');
-disp(['      开始批量实验 (共 ', num2str(length(dataset_list)), ' 个数据集)']);
-disp('======================================');
+% (已跑过的旧数据集，已注释)
+% old_list = {'SONAR', 'Colon', 'Lung_Cancer', 'Internet_Ads'};
 
+disp('==========================================================');
+disp(['      开始批量实验: 共 ', num2str(length(dataset_list)), ' 个新数据集']);
+disp(['      每个数据集重复: ', num2str(REPEAT_TIMES), ' 次']);
+disp('=========================================================='); 
+
+% 外层循环：遍历不同数据集
 for i = 1:length(dataset_list)
-    
     this_dataset = dataset_list{i};
+    disp(['>>> 进入数据集: ', this_dataset, ' <<<']);
     
-    fprintf('\n>>> [%d/%d] 正在处理数据集: %s ...\n', i, length(dataset_list), this_dataset);
-    
-    try
-        % ★★★ 核心命令：调用主函数 ★★★
-        main_CoEvolutionFS(this_dataset);
+    % 内层循环：重复运行多次 (Run 1 ~ Run 5)
+    for run_idx = 1:REPEAT_TIMES
         
-        disp(['[成功] ', this_dataset, ' 运行完毕！']);
+        fprintf('\n    > [%s] 正在执行第 %d / %d 次运行 ...\n', this_dataset, run_idx, REPEAT_TIMES);
         
-    catch ME
-        % 错误捕获：防止一个报错导致全盘停止
-        fprintf('!!! [失败] 数据集 %s 发生错误 !!!\n', this_dataset);
-        fprintf('错误信息: %s\n', ME.message);
-        fprintf('错误堆栈: %s (Line %d)\n', ME.stack(1).name, ME.stack(1).line);
-        disp('>>> 跳过该数据集，继续下一个...');
+        try
+            % ★★★ 核心命令：调用主函数 ★★★
+            % 主函数会自动去 data/ 文件夹下找同名的 .mat 文件
+            main_CoEvolutionFS(this_dataset);
+            
+            disp(['      [成功] Run ', num2str(run_idx), ' 完成。']);
+            
+            % ★ 关键操作：暂停 2 秒，防止结果文件名时间戳冲突 ★
+            pause(2); 
+            
+        catch ME
+            % 错误捕获
+            fprintf('      !!! [失败] Run %d 发生错误 !!!\n', run_idx);
+            fprintf('      错误信息: %s\n', ME.message);
+            disp('      >>> 跳过本次运行，继续下一次...');
+        end
     end
     
-    disp('--------------------------------------');
+    disp('----------------------------------------------------------');
 end
-
-disp('所有任务执行完毕！请去 Results 文件夹查看结果。');
+disp('所有数据集的所有轮次均已执行完毕！');
+disp('请前往 Results 文件夹整理数据。');
